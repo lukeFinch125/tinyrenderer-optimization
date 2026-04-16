@@ -1,6 +1,9 @@
 #include "our_gl.h"
 #include "model.h"
 
+#include <chrono>
+#include <string_view>
+
 extern mat<4,4> ModelView, Perspective; // "OpenGL" state matrices and
 extern std::vector<double> zbuffer;     // the depth buffer
 
@@ -45,8 +48,20 @@ struct PhongShader : IShader {
 };
 
 int main(int argc, char** argv) {
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " obj/model.obj" << std::endl;
+    bool perf_mode = false;
+    std::vector<const char*> model_paths;
+    model_paths.reserve(argc > 1 ? argc - 1 : 0);
+
+    for (int i = 1; i < argc; i++) {
+        if (std::string_view(argv[i]) == "--perf") {
+            perf_mode = true;
+            continue;
+        }
+        model_paths.push_back(argv[i]);
+    }
+
+    if (model_paths.empty()) {
+        std::cerr << "Usage: " << argv[0] << " [--perf] obj/model.obj [more models...]" << std::endl;
         return 1;
     }
 
@@ -63,8 +78,10 @@ int main(int argc, char** argv) {
     init_zbuffer(width, height);
     TGAImage framebuffer(width, height, TGAImage::RGB, {177, 195, 209, 255});
 
-    for (int m=1; m<argc; m++) {                    // iterate through all input objects
-        Model model(argv[m]);                       // load the data
+    const auto render_start = std::chrono::steady_clock::now();
+
+    for (const char* model_path : model_paths) {   // iterate through all input objects
+        Model model(model_path);                   // load the data
         PhongShader shader(light, model);
         for (int f=0; f<model.nfaces(); f++) {      // iterate through all facets
             Triangle clip = { shader.vertex(f, 0),  // assemble the primitive
@@ -75,6 +92,12 @@ int main(int argc, char** argv) {
     }
 
     framebuffer.write_tga_file("framebuffer.tga");
+
+    if (perf_mode) {
+        const auto render_end = std::chrono::steady_clock::now();
+        const auto render_ms = std::chrono::duration_cast<std::chrono::milliseconds>(render_end - render_start);
+        std::cerr << "Render time: " << render_ms.count() << " ms" << std::endl;
+    }
+
     return 0;
 }
-

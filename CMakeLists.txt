@@ -15,8 +15,13 @@ if(iwyu)
   set(CMAKE_CXX_INCLUDE_WHAT_YOU_USE ${IWYU_EXE})
 endif()
 
+option(perf "Build with Linux perf-friendly debug flags" OFF)
+
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU|Intel")
   add_compile_options(-Wall)
+  if(perf)
+    add_compile_options(-g -fno-omit-frame-pointer)
+  endif()
 endif()
 
 find_package(OpenMP COMPONENTS CXX)
