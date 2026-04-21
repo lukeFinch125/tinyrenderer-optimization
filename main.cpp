@@ -83,23 +83,29 @@ int main(int argc, char** argv) {
     TGAImage framebuffer(width, height, TGAImage::RGB, {177, 195, 209, 255});
 
     const auto run_start = std::chrono::system_clock::now();
-    const auto render_start = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::duration io_load_duration{};
+    std::chrono::steady_clock::duration render_duration{};
 
     for (const char* model_path : model_paths) {   // iterate through all input objects
+        const auto io_load_start = std::chrono::steady_clock::now();
         Model model(model_path);                   // load the data
+        io_load_duration += std::chrono::steady_clock::now() - io_load_start;
+
         PhongShader shader(light, model);
+        const auto render_start = std::chrono::steady_clock::now();
         for (int f=0; f<model.nfaces(); f++) {      // iterate through all facets
             Triangle clip = { shader.vertex(f, 0),  // assemble the primitive
                               shader.vertex(f, 1),
                               shader.vertex(f, 2) };
             rasterize(clip, shader, framebuffer);   // rasterize the primitive
         }
+        render_duration += std::chrono::steady_clock::now() - render_start;
     }
 
     framebuffer.write_tga_file("framebuffer.tga");
 
-    const auto render_end = std::chrono::steady_clock::now();
-    const auto render_ms = std::chrono::duration_cast<std::chrono::milliseconds>(render_end - render_start);
+    const auto io_load_ms = std::chrono::duration_cast<std::chrono::milliseconds>(io_load_duration);
+    const auto render_ms = std::chrono::duration_cast<std::chrono::milliseconds>(render_duration);
 
     const std::time_t run_start_time = std::chrono::system_clock::to_time_t(run_start);
     std::tm local_tm{};
@@ -107,10 +113,15 @@ int main(int argc, char** argv) {
 
     std::ofstream times_file("times.txt", std::ios::app);
     times_file << std::put_time(&local_tm, "%Y-%m-%d %H:%M:%S")
+               << " IO load time: " << io_load_ms.count() << " ms"
                << " Render time: " << render_ms.count() << " ms" << std::endl;
 
+    std::cerr << "IO load time: " << io_load_ms.count() << " ms" << std::endl;
+    std::cerr << "Render time: " << render_ms.count() << " ms" << std::endl;
+
     if (perf_mode) {
-        std::cerr << "Render time: " << render_ms.count() << " ms" << std::endl;
+        const auto total_ms = io_load_ms + render_ms;
+        std::cerr << "Timed total: " << total_ms.count() << " ms" << std::endl;
     }
 
     return 0;
