@@ -1,6 +1,11 @@
 #include "our_gl.h"
 #include "model.h"
 
+#include <chrono>
+#include <ctime>
+#include <fstream>
+#include <iomanip>
+
 extern mat<4,4> ModelView, Perspective; // "OpenGL" state matrices and
 extern std::vector<double> zbuffer;     // the depth buffer
 
@@ -50,6 +55,10 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    const auto start_time = std::chrono::system_clock::now();
+    std::chrono::milliseconds io_time{0};
+    std::chrono::milliseconds render_time{0};
+
     constexpr int width  = 800;      // output image size
     constexpr int height = 800;
     constexpr vec3  light{ 1, 1, 1}; // light source
@@ -64,16 +73,32 @@ int main(int argc, char** argv) {
     TGAImage framebuffer(width, height, TGAImage::RGB, {177, 195, 209, 255});
 
     for (int m=1; m<argc; m++) {                    // iterate through all input objects
+        const auto io_start = std::chrono::steady_clock::now();
         Model model(argv[m]);                       // load the data
+        io_time += std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - io_start);
+
         PhongShader shader(light, model);
+
+        const auto render_start = std::chrono::steady_clock::now();
         for (int f=0; f<model.nfaces(); f++) {      // iterate through all facets
             Triangle clip = { shader.vertex(f, 0),  // assemble the primitive
                               shader.vertex(f, 1),
                               shader.vertex(f, 2) };
             rasterize(clip, shader, framebuffer);   // rasterize the primitive
         }
+        render_time += std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - render_start);
     }
 
+    const auto write_start = std::chrono::steady_clock::now();
     framebuffer.write_tga_file("framebuffer.tga");
+
+    io_time += std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - write_start);
+
+    const std::time_t wall_clock = std::chrono::system_clock::to_time_t(start_time);
+    std::ofstream times("times.txt");
+    times << std::put_time(std::localtime(&wall_clock), "%Y-%m-%d %H:%M:%S")
+          << " IO time: " << io_time.count() << " ms"
+          << " Render time: " << render_time.count() << " ms\n";
+
     return 0;
 }
