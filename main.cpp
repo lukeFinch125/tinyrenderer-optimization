@@ -123,10 +123,8 @@ int main(int argc, char** argv) {
                << " Load time: " << load_ms.count() << " ms"
                << " Render time: " << render_ms.count() << " ms" << std::endl;
 
-    if (perf_mode) {
-        std::cerr << "Load time: " << load_ms.count() << " ms" << std::endl;
-        std::cerr << "Render time: " << render_ms.count() << " ms" << std::endl;
-    }
+    std::cerr << "Load time: " << load_ms.count() << " ms" << std::endl;
+    std::cerr << "Render time: " << render_ms.count() << " ms" << std::endl;
 
     return 0;
 }
