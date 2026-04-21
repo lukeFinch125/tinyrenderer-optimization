@@ -17,6 +17,7 @@ struct PhongShader : IShader {
     vec2  varying_uv[3]; // triangle uv coordinates, written by the vertex shader, read by the fragment shader
     vec4 varying_nrm[3]; // normal per vertex to be interpolated by the fragment shader
     vec4 tri[3];         // triangle in view coordinates
+    mat<2,4> tangent_basis;
 
     PhongShader(const vec3 light, const Model &m) : model(m) {
         l = normalized((ModelView*vec4{light.x, light.y, light.z, 0.})); // transform the light vector to view coordinates
@@ -27,15 +28,17 @@ struct PhongShader : IShader {
         varying_nrm[vert] = ModelView.invert_transpose() * model.normal(face, vert);
         vec4 gl_Position = ModelView * model.vert(face, vert);
         tri[vert] = gl_Position;
+        if (vert == 2) {
+            const mat<2,4> E = { tri[1]-tri[0], tri[2]-tri[0] };
+            const mat<2,2> U = { varying_uv[1]-varying_uv[0], varying_uv[2]-varying_uv[0] };
+            tangent_basis = U.invert() * E;
+        }
         return Perspective * gl_Position;                         // in clip coordinates
     }
 
     virtual std::pair<bool,TGAColor> fragment(const vec3 bar) const {
-        mat<2,4> E = { tri[1]-tri[0], tri[2]-tri[0] };
-        mat<2,2> U = { varying_uv[1]-varying_uv[0], varying_uv[2]-varying_uv[0] };
-        mat<2,4> T = U.invert() * E;
-        mat<4,4> D = {normalized(T[0]),  // tangent vector
-                      normalized(T[1]),  // bitangent vector
+        mat<4,4> D = {normalized(tangent_basis[0]),  // tangent vector
+                      normalized(tangent_basis[1]),  // bitangent vector
                       normalized(varying_nrm[0]*bar[0] + varying_nrm[1]*bar[1] + varying_nrm[2]*bar[2]), // interpolated normal
                       {0,0,0,1}}; // Darboux frame
         vec2 uv = varying_uv[0] * bar[0] + varying_uv[1] * bar[1] + varying_uv[2] * bar[2];
@@ -83,10 +86,20 @@ int main(int argc, char** argv) {
     TGAImage framebuffer(width, height, TGAImage::RGB, {177, 195, 209, 255});
 
     const auto run_start = std::chrono::system_clock::now();
+    const auto load_start = std::chrono::steady_clock::now();
+
+    std::vector<Model> models;
+    models.reserve(model_paths.size());
+
+    for (const char* model_path : model_paths) {
+        models.emplace_back(model_path);
+    }
+
+    const auto load_end = std::chrono::steady_clock::now();
+    const auto load_ms = std::chrono::duration_cast<std::chrono::milliseconds>(load_end - load_start);
     const auto render_start = std::chrono::steady_clock::now();
 
-    for (const char* model_path : model_paths) {   // iterate through all input objects
-        Model model(model_path);                   // load the data
+    for (const Model &model : models) {           // iterate through all input objects
         PhongShader shader(light, model);
         for (int f=0; f<model.nfaces(); f++) {      // iterate through all facets
             Triangle clip = { shader.vertex(f, 0),  // assemble the primitive
@@ -96,10 +109,10 @@ int main(int argc, char** argv) {
         }
     }
 
-    framebuffer.write_tga_file("framebuffer.tga");
-
     const auto render_end = std::chrono::steady_clock::now();
     const auto render_ms = std::chrono::duration_cast<std::chrono::milliseconds>(render_end - render_start);
+
+    framebuffer.write_tga_file("framebuffer.tga");
 
     const std::time_t run_start_time = std::chrono::system_clock::to_time_t(run_start);
     std::tm local_tm{};
@@ -107,9 +120,11 @@ int main(int argc, char** argv) {
 
     std::ofstream times_file("times.txt", std::ios::app);
     times_file << std::put_time(&local_tm, "%Y-%m-%d %H:%M:%S")
+               << " Load time: " << load_ms.count() << " ms"
                << " Render time: " << render_ms.count() << " ms" << std::endl;
 
     if (perf_mode) {
+        std::cerr << "Load time: " << load_ms.count() << " ms" << std::endl;
         std::cerr << "Render time: " << render_ms.count() << " ms" << std::endl;
     }
 
