@@ -1,0 +1,4 @@
+Common workflow:
+perf record --call-graph fp ./build/tinyrenderer --perf obj/african_head/african_head.obj
+perf report
+

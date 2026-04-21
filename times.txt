@@ -1,12 +1,1 @@
-Stock
-lukefinch@luke-macbookpro:~/Desktop/repos/tinyrenderer$ perf record --call-graph fp ./build/tinyrenderer --perf obj/african_head/african_head.obj
-# v# 1258 f# 2492
-texture file obj/african_head/african_head_diffuse.tga loading 1024x1024/24
-ok
-texture file obj/african_head/african_head_nm_tangent.tga loading 1024x1024/24
-ok
-texture file obj/african_head/african_head_spec.tga loading 1024x1024/8
-ok
-Render time: 135 ms
-[ perf record: Woken up 1 times to write data ]
-[ perf record: Captured and wrote 0.264 MB perf.data (2266 samples) ]
+Optimizations with 

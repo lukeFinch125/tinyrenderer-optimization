@@ -2,6 +2,10 @@
 #include "model.h"
 
 #include <chrono>
+#include <ctime>
+#include <fstream>
+#include <iomanip>
+#include <string>
 #include <string_view>
 
 extern mat<4,4> ModelView, Perspective; // "OpenGL" state matrices and
@@ -78,6 +82,7 @@ int main(int argc, char** argv) {
     init_zbuffer(width, height);
     TGAImage framebuffer(width, height, TGAImage::RGB, {177, 195, 209, 255});
 
+    const auto run_start = std::chrono::system_clock::now();
     const auto render_start = std::chrono::steady_clock::now();
 
     for (const char* model_path : model_paths) {   // iterate through all input objects
@@ -93,9 +98,18 @@ int main(int argc, char** argv) {
 
     framebuffer.write_tga_file("framebuffer.tga");
 
+    const auto render_end = std::chrono::steady_clock::now();
+    const auto render_ms = std::chrono::duration_cast<std::chrono::milliseconds>(render_end - render_start);
+
+    const std::time_t run_start_time = std::chrono::system_clock::to_time_t(run_start);
+    std::tm local_tm{};
+    localtime_r(&run_start_time, &local_tm);
+
+    std::ofstream times_file("times.txt", std::ios::app);
+    times_file << std::put_time(&local_tm, "%Y-%m-%d %H:%M:%S")
+               << " Render time: " << render_ms.count() << " ms" << std::endl;
+
     if (perf_mode) {
-        const auto render_end = std::chrono::steady_clock::now();
-        const auto render_ms = std::chrono::duration_cast<std::chrono::milliseconds>(render_end - render_start);
         std::cerr << "Render time: " << render_ms.count() << " ms" << std::endl;
     }
 

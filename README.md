@@ -99,10 +99,11 @@ cmake --build build -j &&
 build/tinyrenderer obj/diablo3_pose/diablo3_pose.obj obj/floor.obj
 ```
 The rendered image is saved to `framebuffer.tga`.
+Each run also overwrites `times.txt` with the render start time and total render duration.
 
 For a perf-friendly build on Linux, configure with `cmake -Bbuild -Dperf=ON`.
 
-To print render timing from the app itself, pass `--perf` before your model paths:
+The renderer always writes timing to `times.txt`. If you also want the duration printed to stderr while profiling, pass `--perf` before your model paths:
 
 ```sh
 build/tinyrenderer --perf obj/diablo3_pose/diablo3_pose.obj obj/floor.obj
