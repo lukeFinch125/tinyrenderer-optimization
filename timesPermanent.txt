@@ -1,0 +1,58 @@
+Baseline diablo3_pose + floor
+741
+735
+772
+821
+821
+1049
+746
+745
+740
+745
+avg: 791.5
+
+
+optimizations with pragma Diablo3_posed + floor
+755 ms
+737
+743
+718
+722
+713
+731
+740
+764
+862
+avg: 748.5
+
+percent improvement over last: 5.74%
+
++ single threaded
+709
+706
+720
+750
+705
+708 
+702
+707
+732
+747
+
+avg: 718.6
+
+percent improvement: 4.16%
+
+main.cpp improvements:
+61
+62
+62
+62
+62
+62
+62
+63
+63
+62
+
+avg: 62.2 ms

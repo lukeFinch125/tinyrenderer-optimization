@@ -1,0 +1,7 @@
+main.cpp
+loads all model objects first then renders them in seperate phases
+moved tgriangle invariant tangent basis setup ouit of phgonshader::fragment(...) 
+and into vertex(...) once per tgriangle. That removes repeated U.invert() * E
+
+hoistewd ABC.invert_transpose() out of the inner loop so it is computed
+once per triangle instead of once per pixel
