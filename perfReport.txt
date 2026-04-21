@@ -1,0 +1,119 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 461  of event 'apple_avalanche_pmu/cycles/Pu'
+# Event count (approx.): 277570658
+#
+#     Self
+# ........
+#
+   100.00%
+            |          
+             --99.68%--_start
+                       __libc_start_main@@GLIBC_2.34
+                       __libc_start_call_main
+                       main
+                       |          
+                       |--46.34%--rasterize(vec<4> const (&) [3], IShader const&, TGAImage&)
+                       |          |          
+                       |          |--37.02%--PhongShader::fragment(vec<3>) const
+                       |          |          |          
+                       |          |          |--6.25%--Model::normal(vec<2> const&) const
+                       |          |          |          |          
+                       |          |          |          |--2.03%--TGAImage::get(int, int) const
+                       |          |          |          |          |          
+                       |          |          |          |           --0.58%--__memcpy_generic
+                       |          |          |          |          
+                       |          |          |           --0.85%--vec<4> normalized<4>(vec<4> const&)
+                       |          |          |          
+                       |          |          |--5.42%--vec<4> normalized<4>(vec<4> const&)
+                       |          |          |          
+                       |          |          |--3.17%--vec<4> operator*<4, 4>(mat<4, 4> const&, vec<4> const&)
+                       |          |          |          
+                       |          |          |--2.86%--TGAImage::get(int, int) const
+                       |          |          |          |          
+                       |          |          |          |--1.42%--__memcpy_generic
+                       |          |          |          |          
+                       |          |          |           --0.56%--memcpy@plt
+                       |          |          |          
+                       |          |          |--1.71%--pow@@GLIBC_2.29
+                       |          |          |          
+                       |          |          |--0.58%--Model::specular() const
+                       |          |          |          
+                       |          |           --0.56%--pow@plt
+                       |          |          
+                       |          |--1.17%--TGAImage::set(int, int, TGAColor const&)
+                       |          |          
+                       |           --1.15%--__memcpy_generic
+                       |          
+                       |--45.49%--Model::Model(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >)
+                       |          |          
+                       |          |--42.63%--Model::Model(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >)::{lambda(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, TGAImage&)#1}::operator()(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, TGAImage&) const [clone .isra.0]
+                       |          |          TGAImage::read_tga_file(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >)
+                       |          |          |          
+                       |          |          |--33.38%--TGAImage::load_rle_data(std::basic_ifstream<char, std::char_traits<char> >&)
+                       |          |          |          |          
+                       |          |          |          |--24.19%--std::istream::read(char*, long)
+                       |          |          |          |          |          
+                       |          |          |          |          |--13.87%--std::basic_filebuf<char, std::char_traits<char> >::xsgetn(char*, long)
+                       |          |          |          |          |          |          
+                       |          |          |          |          |           --10.21%--std::basic_streambuf<char, std::char_traits<char> >::xsgetn(char*, long)
+                       |          |          |          |          |                     |          
+                       |          |          |          |          |                     |--2.41%--__memcpy_generic
+                       |          |          |          |          |                     |          
+                       |          |          |          |          |                      --2.14%--memcpy@plt
+                       |          |          |          |          |          
+                       |          |          |          |          |--3.08%--std::istream::sentry::sentry(std::istream&, bool)
+                       |          |          |          |          |          
+                       |          |          |          |          |--2.45%--std::istream::sentry::sentry(std::istream&, bool)@plt
+                       |          |          |          |          |          
+                       |          |          |          |           --2.32%--0x64fffec0861b0b
+                       |          |          |          |                     std::basic_streambuf<char, std::char_traits<char> >::xsgetn(char*, long)
+                       |          |          |          |          
+                       |          |          |          |--1.58%--std::istream::get()
+                       |          |          |          |          |          
+                       |          |          |          |          |--0.78%--std::istream::sentry::sentry(std::istream&, bool)@plt
+                       |          |          |          |          |          
+                       |          |          |          |           --0.61%--std::istream::sentry::sentry(std::istream&, bool)
+                       |          |          |          |          
+                       |          |          |          |--0.92%--std::istream::read(char*, long)@plt
+                       |          |          |          |          
+                       |          |          |          |--0.87%--0x58fffec086ef3f
+                       |          |          |          |          std::basic_filebuf<char, std::char_traits<char> >::xsgetn(char*, long)
+                       |          |          |          |          
+                       |          |          |           --0.61%--0x53fffec086ef13
+                       |          |          |                     std::istream::sentry::sentry(std::istream&, bool)
+                       |          |          |          
+                       |          |           --0.85%--0x25000000406157
+                       |          |                     std::istream::read(char*, long)
+                       |          |          
+                       |          |--1.08%--std::istream& std::istream::_M_extract<double>(double&)
+                       |          |          |          
+                       |          |           --0.98%--std::num_get<char, std::istreambuf_iterator<char, std::char_traits<char> > >::do_get(std::istreambuf_iterator<char, std::char_traits<char> >, std::istreambuf_iterator<char, std::char_traits<char> >, std::ios_base&, std::_Ios_Iostate&, double&) const
+                       |          |                     |          
+                       |          |                      --0.52%--std::num_get<char, std::istreambuf_iterator<char, std::char_traits<char> > >::_M_extract_float(std::istreambuf_iterator<char, std::char_traits<char> >, std::istreambuf_iterator<char, std::char_traits<char> >, std::ios_base&, std::_Ios_Iostate&, std::string&) const
+                       |          |          
+                       |           --0.75%--std::istream::operator>>(int&)
+                       |                     |          
+                       |                      --0.62%--std::istreambuf_iterator<char, std::char_traits<char> > std::num_get<char, std::istreambuf_iterator<char, std::char_traits<char> > >::_M_extract_int<long>(std::istreambuf_iterator<char, std::char_traits<char> >, std::istreambuf_iterator<char, std::char_traits<char> >, std::ios_base&, std::_Ios_Iostate&, long&) const
+                       |          
+                       |--3.25%--TGAImage::write_tga_file(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, bool, bool) const
+                       |          TGAImage::unload_rle_data(std::basic_ofstream<char, std::char_traits<char> >&) const
+                       |          |          
+                       |           --0.56%--std::ostream::write(char const*, long)
+                       |          
+                       |--1.96%--PhongShader::fragment(vec<3>) const
+                       |          
+                       |--1.92%--TGAImage::TGAImage(int, int, int, TGAColor)
+                       |          |          
+                       |           --1.19%--__memcpy_generic
+                       |          
+                        --0.56%--vec<4> operator*<4, 4>(mat<4, 4> const&, vec<4> const&)
+
+
+
+#
+# (Tip: See assembly instructions with percentage: perf annotate <symbol>)
+#
