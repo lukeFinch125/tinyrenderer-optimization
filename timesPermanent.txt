@@ -28,18 +28,18 @@ avg: 748.5
 percent improvement over last: 5.74%
 
 + single threaded
-709
-706
-720
-750
-705
-708 
-702
-707
-732
-747
+66
+66
+66
+65
+66
+67
+66
+66
+66
+66
 
-avg: 718.6
+avg: 66 ms
 
 percent improvement: 4.16%
 
@@ -56,3 +56,17 @@ main.cpp improvements:
 62
 
 avg: 62.2 ms
+
+main.cpp improvements + multi thread:
+27
+29
+29
+28
+29
+28
+27
+35
+29
+27
+28
+
