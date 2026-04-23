@@ -13,41 +13,74 @@ extern std::vector<double> zbuffer;     // the depth buffer
 
 struct PhongShader : IShader {
     const Model &model;
+    const TGAImage &diffusemap;
+    const TGAImage &normalmap;
+    const TGAImage &specularmap;
     vec4 l;              // light direction in eye coordinates
+    mat<4,4> normal_matrix;
+    int diffuse_width;
+    int diffuse_height;
+    int normal_width;
+    int normal_height;
+    int specular_width;
+    int specular_height;
     vec2  varying_uv[3]; // triangle uv coordinates, written by the vertex shader, read by the fragment shader
     vec4 varying_nrm[3]; // normal per vertex to be interpolated by the fragment shader
     vec4 tri[3];         // triangle in view coordinates
-    mat<2,4> tangent_basis;
+    vec4 tangent;
+    vec4 bitangent;
 
-    PhongShader(const vec3 light, const Model &m) : model(m) {
+    PhongShader(const vec3 light, const Model &m) : model(m), diffusemap(m.diffuse()), normalmap(m.normal_map()), specularmap(m.specular()) {
         l = normalized((ModelView*vec4{light.x, light.y, light.z, 0.})); // transform the light vector to view coordinates
+        normal_matrix = ModelView.invert_transpose();
+        diffuse_width = diffusemap.width();
+        diffuse_height = diffusemap.height();
+        normal_width = normalmap.width();
+        normal_height = normalmap.height();
+        specular_width = specularmap.width();
+        specular_height = specularmap.height();
     }
 
     virtual vec4 vertex(const int face, const int vert) {
         varying_uv[vert]  = model.uv(face, vert);
-        varying_nrm[vert] = ModelView.invert_transpose() * model.normal(face, vert);
+        varying_nrm[vert] = normal_matrix * model.normal(face, vert);
         vec4 gl_Position = ModelView * model.vert(face, vert);
         tri[vert] = gl_Position;
         if (vert == 2) {
-            const mat<2,4> E = { tri[1]-tri[0], tri[2]-tri[0] };
-            const mat<2,2> U = { varying_uv[1]-varying_uv[0], varying_uv[2]-varying_uv[0] };
-            tangent_basis = U.invert() * E;
+            const vec4 edge0 = tri[1] - tri[0];
+            const vec4 edge1 = tri[2] - tri[0];
+            const vec2 duv0 = varying_uv[1] - varying_uv[0];
+            const vec2 duv1 = varying_uv[2] - varying_uv[0];
+            const double inv_det = 1. / (duv0.x*duv1.y - duv0.y*duv1.x);
+            tangent = normalized((edge0 * duv1.y - edge1 * duv0.y) * inv_det);
+            bitangent = normalized((edge1 * duv0.x - edge0 * duv1.x) * inv_det);
         }
         return Perspective * gl_Position;                         // in clip coordinates
     }
 
     virtual std::pair<bool,TGAColor> fragment(const vec3 bar) const {
-        mat<4,4> D = {normalized(tangent_basis[0]),  // tangent vector
-                      normalized(tangent_basis[1]),  // bitangent vector
-                      normalized(varying_nrm[0]*bar[0] + varying_nrm[1]*bar[1] + varying_nrm[2]*bar[2]), // interpolated normal
-                      {0,0,0,1}}; // Darboux frame
         vec2 uv = varying_uv[0] * bar[0] + varying_uv[1] * bar[1] + varying_uv[2] * bar[2];
-        vec4 n = normalized(D.transpose() * model.normal(uv));
-        vec4 r = normalized(n * (n * l)*2 - l);                   // reflected light direction
+        const int tx = uv.x * diffuse_width;
+        const int ty = uv.y * diffuse_height;
+        const int nx = uv.x * normal_width;
+        const int ny = uv.y * normal_height;
+        const int sx = uv.x * specular_width;
+        const int sy = uv.y * specular_height;
+        vec4 geometric_normal = normalized(varying_nrm[0]*bar[0] + varying_nrm[1]*bar[1] + varying_nrm[2]*bar[2]);
+        TGAColor tangent_space_sample = normalmap.get(nx, ny);
+        vec4 mapped_normal = normalized(vec4{(double)tangent_space_sample[2], (double)tangent_space_sample[1], (double)tangent_space_sample[0], 0}*2./255. - vec4{1,1,1,0});
+        vec4 n = normalized(tangent * mapped_normal.x + bitangent * mapped_normal.y + geometric_normal * mapped_normal.z);
         double ambient  = .4;                                     // ambient light intensity
-        double diffuse  = 1.*std::max(0., n * l);                 // diffuse light intensity
-        double specular = (.5+2.*sample2D(model.specular(), uv)[0]/255.) * std::pow(std::max(r.z, 0.), 35);  // specular intensity, note that the camera lies on the z-axis (in eye coordinates), therefore simple r.z, since (0,0,1)*(r.x, r.y, r.z) = r.z
-        TGAColor gl_FragColor = sample2D(model.diffuse(), uv);
+        const double nl = n * l;
+        double diffuse  = std::max(0., nl);                       // diffuse light intensity
+        double specular = 0.;
+        if (nl > 0.) {
+            const double rz = 2.*nl*n.z - l.z;
+            if (rz > 0.) {
+                specular = (.5+2.*specularmap.get(sx, sy)[0]/255.) * std::pow(rz, 35);  // specular intensity, note that the camera lies on the z-axis (in eye coordinates), therefore simple r.z, since (0,0,1)*(r.x, r.y, r.z) = r.z
+            }
+        }
+        TGAColor gl_FragColor = diffusemap.get(tx, ty);
         for (int channel : {0,1,2})
             gl_FragColor[channel] = std::min<int>(255, gl_FragColor[channel]*(ambient + diffuse + specular));
         return {false, gl_FragColor};                             // do not discard the pixel
