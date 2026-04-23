@@ -79,7 +79,7 @@ void rasterize(const Triangle &clip, const IShader &shader, TGAImage &framebuffe
     const double row_z = (row_w0*z0 + row_w1*z1 + row_w2*z2) * inv_area;
     const int pixels = (maxx-minx+1) * (maxy-miny+1);
 
-    #pragma omp parallel for if(pixels > 4096) schedule(static)
+    #pragma omp parallel for schedule(dynamic, 1)
     for (int y=miny; y<=maxy; y++) {
         double w0 = row_w0 + (y-miny) * w0_step_y;
         double w1 = row_w1 + (y-miny) * w1_step_y;
