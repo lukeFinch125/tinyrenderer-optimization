@@ -31,4 +31,11 @@ set(SOURCES main.cpp our_gl.cpp model.cpp tgaimage.cpp)
 add_executable(${PROJECT_NAME} ${SOURCES})
 target_link_libraries(${PROJECT_NAME} PRIVATE $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>)
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU|Intel")
+  target_compile_options(${PROJECT_NAME} PRIVATE -O3 -ffast-math -fno-math-errno)
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i.86")
+    target_compile_options(${PROJECT_NAME} PRIVATE -march=native -mtune=native -mavx2 -mfma)
+  endif()
+endif()
+
 file(GENERATE OUTPUT .gitignore CONTENT "*")

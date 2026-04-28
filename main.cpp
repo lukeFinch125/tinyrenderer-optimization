@@ -5,11 +5,23 @@
 #include <ctime>
 #include <fstream>
 #include <iomanip>
+#include <arm_neon.h>
 #include <string>
 #include <string_view>
 
 extern mat<4,4> ModelView, Perspective; // "OpenGL" state matrices and
-extern std::vector<double> zbuffer;     // the depth buffer
+extern std::vector<float> zbuffer;      // the depth buffer
+
+namespace {
+
+float32x4_t rsqrt_nr(float32x4_t v) {
+    float32x4_t estimate = vrsqrteq_f32(v);
+    estimate = vmulq_f32(estimate, vrsqrtsq_f32(vmulq_f32(v, estimate), estimate));
+    estimate = vmulq_f32(estimate, vrsqrtsq_f32(vmulq_f32(v, estimate), estimate));
+    return estimate;
+}
+
+} // namespace
 
 struct PhongShader : IShader {
     const Model &model;
@@ -20,30 +32,64 @@ struct PhongShader : IShader {
     mat<4,4> normal_matrix;
     int diffuse_width;
     int diffuse_height;
+    int diffuse_bpp;
     int normal_width;
     int normal_height;
+    int normal_bpp;
     int specular_width;
     int specular_height;
+    int specular_bpp;
+    const std::uint8_t *diffuse_data;
+    const std::uint8_t *normal_data;
+    const std::uint8_t *specular_data;
     vec2  varying_uv[3]; // triangle uv coordinates, written by the vertex shader, read by the fragment shader
     vec4 varying_nrm[3]; // normal per vertex to be interpolated by the fragment shader
     vec4 tri[3];         // triangle in view coordinates
     vec4 tangent;
     vec4 bitangent;
+    float varying_uv_x[3] = {};
+    float varying_uv_y[3] = {};
+    float varying_nrm_x[3] = {};
+    float varying_nrm_y[3] = {};
+    float varying_nrm_z[3] = {};
+    float tangent_x = 0.f;
+    float tangent_y = 0.f;
+    float tangent_z = 0.f;
+    float bitangent_x = 0.f;
+    float bitangent_y = 0.f;
+    float bitangent_z = 0.f;
+    float light_x = 0.f;
+    float light_y = 0.f;
+    float light_z = 0.f;
 
     PhongShader(const vec3 light, const Model &m) : model(m), diffusemap(m.diffuse()), normalmap(m.normal_map()), specularmap(m.specular()) {
         l = normalized((ModelView*vec4{light.x, light.y, light.z, 0.})); // transform the light vector to view coordinates
         normal_matrix = ModelView.invert_transpose();
         diffuse_width = diffusemap.width();
         diffuse_height = diffusemap.height();
+        diffuse_bpp = diffusemap.bytespp();
         normal_width = normalmap.width();
         normal_height = normalmap.height();
+        normal_bpp = normalmap.bytespp();
         specular_width = specularmap.width();
         specular_height = specularmap.height();
+        specular_bpp = specularmap.bytespp();
+        diffuse_data = diffusemap.raw_data();
+        normal_data = normalmap.raw_data();
+        specular_data = specularmap.raw_data();
+        light_x = static_cast<float>(l.x);
+        light_y = static_cast<float>(l.y);
+        light_z = static_cast<float>(l.z);
     }
 
     virtual vec4 vertex(const int face, const int vert) {
         varying_uv[vert]  = model.uv(face, vert);
         varying_nrm[vert] = normal_matrix * model.normal(face, vert);
+        varying_uv_x[vert] = static_cast<float>(varying_uv[vert].x);
+        varying_uv_y[vert] = static_cast<float>(varying_uv[vert].y);
+        varying_nrm_x[vert] = static_cast<float>(varying_nrm[vert].x);
+        varying_nrm_y[vert] = static_cast<float>(varying_nrm[vert].y);
+        varying_nrm_z[vert] = static_cast<float>(varying_nrm[vert].z);
         vec4 gl_Position = ModelView * model.vert(face, vert);
         tri[vert] = gl_Position;
         if (vert == 2) {
@@ -54,6 +100,12 @@ struct PhongShader : IShader {
             const double inv_det = 1. / (duv0.x*duv1.y - duv0.y*duv1.x);
             tangent = normalized((edge0 * duv1.y - edge1 * duv0.y) * inv_det);
             bitangent = normalized((edge1 * duv0.x - edge0 * duv1.x) * inv_det);
+            tangent_x = static_cast<float>(tangent.x);
+            tangent_y = static_cast<float>(tangent.y);
+            tangent_z = static_cast<float>(tangent.z);
+            bitangent_x = static_cast<float>(bitangent.x);
+            bitangent_y = static_cast<float>(bitangent.y);
+            bitangent_z = static_cast<float>(bitangent.z);
         }
         return Perspective * gl_Position;                         // in clip coordinates
     }
@@ -84,6 +136,127 @@ struct PhongShader : IShader {
         for (int channel : {0,1,2})
             gl_FragColor[channel] = std::min<int>(255, gl_FragColor[channel]*(ambient + diffuse + specular));
         return {false, gl_FragColor};                             // do not discard the pixel
+    }
+
+    virtual std::uint32_t fragment4(const float *bar0, const float *bar1, const float *bar2, std::uint32_t active_mask, TGAColor *colors) const override {
+        const float32x4_t b0 = vld1q_f32(bar0);
+        const float32x4_t b1 = vld1q_f32(bar1);
+        const float32x4_t b2 = vld1q_f32(bar2);
+
+        const float32x4_t uvx = vmlaq_f32(vmlaq_f32(vmulq_f32(vdupq_n_f32(varying_uv_x[0]), b0), vdupq_n_f32(varying_uv_x[1]), b1), vdupq_n_f32(varying_uv_x[2]), b2);
+        const float32x4_t uvy = vmlaq_f32(vmlaq_f32(vmulq_f32(vdupq_n_f32(varying_uv_y[0]), b0), vdupq_n_f32(varying_uv_y[1]), b1), vdupq_n_f32(varying_uv_y[2]), b2);
+
+        int32x4_t tx = vcvtq_s32_f32(vmulq_f32(uvx, vdupq_n_f32(static_cast<float>(diffuse_width))));
+        int32x4_t ty = vcvtq_s32_f32(vmulq_f32(uvy, vdupq_n_f32(static_cast<float>(diffuse_height))));
+        int32x4_t nx = vcvtq_s32_f32(vmulq_f32(uvx, vdupq_n_f32(static_cast<float>(normal_width))));
+        int32x4_t ny = vcvtq_s32_f32(vmulq_f32(uvy, vdupq_n_f32(static_cast<float>(normal_height))));
+        int32x4_t sx = vcvtq_s32_f32(vmulq_f32(uvx, vdupq_n_f32(static_cast<float>(specular_width))));
+        int32x4_t sy = vcvtq_s32_f32(vmulq_f32(uvy, vdupq_n_f32(static_cast<float>(specular_height))));
+
+        const int32x4_t zero_i = vdupq_n_s32(0);
+        tx = vminq_s32(vmaxq_s32(tx, zero_i), vdupq_n_s32(diffuse_width - 1));
+        ty = vminq_s32(vmaxq_s32(ty, zero_i), vdupq_n_s32(diffuse_height - 1));
+        nx = vminq_s32(vmaxq_s32(nx, zero_i), vdupq_n_s32(normal_width - 1));
+        ny = vminq_s32(vmaxq_s32(ny, zero_i), vdupq_n_s32(normal_height - 1));
+        sx = vminq_s32(vmaxq_s32(sx, zero_i), vdupq_n_s32(specular_width - 1));
+        sy = vminq_s32(vmaxq_s32(sy, zero_i), vdupq_n_s32(specular_height - 1));
+
+        const float32x4_t geom_x = vmlaq_f32(vmlaq_f32(vmulq_f32(vdupq_n_f32(varying_nrm_x[0]), b0), vdupq_n_f32(varying_nrm_x[1]), b1), vdupq_n_f32(varying_nrm_x[2]), b2);
+        const float32x4_t geom_y = vmlaq_f32(vmlaq_f32(vmulq_f32(vdupq_n_f32(varying_nrm_y[0]), b0), vdupq_n_f32(varying_nrm_y[1]), b1), vdupq_n_f32(varying_nrm_y[2]), b2);
+        const float32x4_t geom_z = vmlaq_f32(vmlaq_f32(vmulq_f32(vdupq_n_f32(varying_nrm_z[0]), b0), vdupq_n_f32(varying_nrm_z[1]), b1), vdupq_n_f32(varying_nrm_z[2]), b2);
+
+        const float32x4_t geom_len2 = vmlaq_f32(vmlaq_f32(vmulq_f32(geom_x, geom_x), geom_y, geom_y), geom_z, geom_z);
+        const float32x4_t geom_inv_len = rsqrt_nr(geom_len2);
+        const float32x4_t geom_nx = vmulq_f32(geom_x, geom_inv_len);
+        const float32x4_t geom_ny = vmulq_f32(geom_y, geom_inv_len);
+        const float32x4_t geom_nz = vmulq_f32(geom_z, geom_inv_len);
+
+        alignas(16) int tx_vals[4];
+        alignas(16) int ty_vals[4];
+        alignas(16) int nx_vals[4];
+        alignas(16) int ny_vals[4];
+        alignas(16) int sx_vals[4];
+        alignas(16) int sy_vals[4];
+        vst1q_s32(tx_vals, tx);
+        vst1q_s32(ty_vals, ty);
+        vst1q_s32(nx_vals, nx);
+        vst1q_s32(ny_vals, ny);
+        vst1q_s32(sx_vals, sx);
+        vst1q_s32(sy_vals, sy);
+
+        alignas(16) float mapped_x_vals[4] = {};
+        alignas(16) float mapped_y_vals[4] = {};
+        alignas(16) float mapped_z_vals[4] = {};
+        alignas(16) float spec_strength_vals[4] = {};
+        alignas(16) std::uint8_t diffuse_b_vals[4] = {};
+        alignas(16) std::uint8_t diffuse_g_vals[4] = {};
+        alignas(16) std::uint8_t diffuse_r_vals[4] = {};
+
+        for (int lane = 0; lane < 4; lane++) {
+            if (((active_mask >> lane) & 1u) == 0) continue;
+            const int n_offset = (nx_vals[lane] + ny_vals[lane] * normal_width) * normal_bpp;
+            mapped_x_vals[lane] = normal_data[n_offset + 2] * (2.f / 255.f) - 1.f;
+            mapped_y_vals[lane] = normal_data[n_offset + 1] * (2.f / 255.f) - 1.f;
+            mapped_z_vals[lane] = normal_data[n_offset + 0] * (2.f / 255.f) - 1.f;
+
+            const int d_offset = (tx_vals[lane] + ty_vals[lane] * diffuse_width) * diffuse_bpp;
+            diffuse_b_vals[lane] = diffuse_data[d_offset + 0];
+            diffuse_g_vals[lane] = diffuse_data[d_offset + 1];
+            diffuse_r_vals[lane] = diffuse_data[d_offset + 2];
+
+            const int s_offset = (sx_vals[lane] + sy_vals[lane] * specular_width) * specular_bpp;
+            spec_strength_vals[lane] = .5f + 2.f * specular_data[s_offset] * (1.f / 255.f);
+        }
+
+        float32x4_t mapped_x = vld1q_f32(mapped_x_vals);
+        float32x4_t mapped_y = vld1q_f32(mapped_y_vals);
+        float32x4_t mapped_z = vld1q_f32(mapped_z_vals);
+
+        const float32x4_t mapped_len2 = vmlaq_f32(vmlaq_f32(vmulq_f32(mapped_x, mapped_x), mapped_y, mapped_y), mapped_z, mapped_z);
+        const float32x4_t mapped_inv_len = rsqrt_nr(mapped_len2);
+        mapped_x = vmulq_f32(mapped_x, mapped_inv_len);
+        mapped_y = vmulq_f32(mapped_y, mapped_inv_len);
+        mapped_z = vmulq_f32(mapped_z, mapped_inv_len);
+
+        const float32x4_t n_x = vmlaq_f32(vmlaq_f32(vmulq_f32(vdupq_n_f32(tangent_x), mapped_x), vdupq_n_f32(bitangent_x), mapped_y), geom_nx, mapped_z);
+        const float32x4_t n_y = vmlaq_f32(vmlaq_f32(vmulq_f32(vdupq_n_f32(tangent_y), mapped_x), vdupq_n_f32(bitangent_y), mapped_y), geom_ny, mapped_z);
+        const float32x4_t n_z = vmlaq_f32(vmlaq_f32(vmulq_f32(vdupq_n_f32(tangent_z), mapped_x), vdupq_n_f32(bitangent_z), mapped_y), geom_nz, mapped_z);
+
+        const float32x4_t n_len2 = vmlaq_f32(vmlaq_f32(vmulq_f32(n_x, n_x), n_y, n_y), n_z, n_z);
+        const float32x4_t n_inv_len = rsqrt_nr(n_len2);
+        const float32x4_t nn_x = vmulq_f32(n_x, n_inv_len);
+        const float32x4_t nn_y = vmulq_f32(n_y, n_inv_len);
+        const float32x4_t nn_z = vmulq_f32(n_z, n_inv_len);
+
+        const float32x4_t nl = vmlaq_f32(vmlaq_f32(vmulq_f32(nn_x, vdupq_n_f32(light_x)), nn_y, vdupq_n_f32(light_y)), nn_z, vdupq_n_f32(light_z));
+        const float32x4_t zero = vdupq_n_f32(0.f);
+        const float32x4_t diffuse = vmaxq_f32(zero, nl);
+
+        const float32x4_t rz = vsubq_f32(vmulq_f32(vmulq_f32(vdupq_n_f32(2.f), nl), nn_z), vdupq_n_f32(light_z));
+        const float32x4_t positive_rz = vmaxq_f32(zero, rz);
+        const float32x4_t rz2 = vmulq_f32(positive_rz, positive_rz);
+        const float32x4_t rz4 = vmulq_f32(rz2, rz2);
+        const float32x4_t rz8 = vmulq_f32(rz4, rz4);
+        const float32x4_t rz16 = vmulq_f32(rz8, rz8);
+        const float32x4_t rz32 = vmulq_f32(rz16, rz16);
+        const float32x4_t rz35 = vmulq_f32(vmulq_f32(rz32, rz2), positive_rz);
+        const float32x4_t specular = vmulq_f32(vld1q_f32(spec_strength_vals), rz35);
+
+        const float32x4_t scale = vaddq_f32(vdupq_n_f32(.4f), vaddq_f32(diffuse, specular));
+        alignas(16) float scale_vals[4];
+        vst1q_f32(scale_vals, scale);
+
+        std::uint32_t keep_mask = 0;
+        for (int lane = 0; lane < 4; lane++) {
+            if (((active_mask >> lane) & 1u) == 0) continue;
+            TGAColor color = { diffuse_b_vals[lane], diffuse_g_vals[lane], diffuse_r_vals[lane], 255, static_cast<std::uint8_t>(diffuse_bpp) };
+            color[0] = std::min(255, static_cast<int>(color[0] * scale_vals[lane]));
+            color[1] = std::min(255, static_cast<int>(color[1] * scale_vals[lane]));
+            color[2] = std::min(255, static_cast<int>(color[2] * scale_vals[lane]));
+            colors[lane] = color;
+            keep_mask |= 1u << lane;
+        }
+        return keep_mask;
     }
 };
 

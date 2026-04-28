@@ -204,3 +204,14 @@ int TGAImage::height() const {
     return h;
 }
 
+int TGAImage::bytespp() const {
+    return bpp;
+}
+
+const std::uint8_t* TGAImage::raw_data() const {
+    return data.data();
+}
+
+std::uint8_t* TGAImage::raw_data() {
+    return data.data();
+}

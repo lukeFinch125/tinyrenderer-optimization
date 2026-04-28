@@ -39,6 +39,9 @@ struct TGAImage {
     void set(const int x, const int y, const TGAColor &c);
     int width()  const;
     int height() const;
+    int bytespp() const;
+    const std::uint8_t* raw_data() const;
+    std::uint8_t* raw_data();
 private:
     bool   load_rle_data(std::ifstream &in);
     bool unload_rle_data(std::ofstream &out) const;
@@ -46,4 +49,3 @@ private:
     std::uint8_t bpp = 0;
     std::vector<std::uint8_t> data = {};
 };
-
