@@ -5,21 +5,39 @@
 #include <ctime>
 #include <fstream>
 #include <iomanip>
-#include <arm_neon.h>
 #include <string>
 #include <string_view>
+
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+#include <arm_neon.h>
+#define TINY_SIMD_NEON 1
+#elif defined(__SSE2__)
+#include <immintrin.h>
+#define TINY_SIMD_SSE 1
+#endif
 
 extern mat<4,4> ModelView, Perspective; // "OpenGL" state matrices and
 extern std::vector<float> zbuffer;      // the depth buffer
 
 namespace {
 
+#if defined(TINY_SIMD_NEON)
 float32x4_t rsqrt_nr(float32x4_t v) {
     float32x4_t estimate = vrsqrteq_f32(v);
     estimate = vmulq_f32(estimate, vrsqrtsq_f32(vmulq_f32(v, estimate), estimate));
     estimate = vmulq_f32(estimate, vrsqrtsq_f32(vmulq_f32(v, estimate), estimate));
     return estimate;
 }
+#elif defined(TINY_SIMD_SSE)
+__m128 rsqrt_nr(__m128 v) {
+    __m128 estimate = _mm_rsqrt_ps(v);
+    const __m128 half = _mm_set1_ps(0.5f);
+    const __m128 three_halves = _mm_set1_ps(1.5f);
+    estimate = _mm_mul_ps(estimate, _mm_sub_ps(three_halves, _mm_mul_ps(half, _mm_mul_ps(v, _mm_mul_ps(estimate, estimate)))));
+    estimate = _mm_mul_ps(estimate, _mm_sub_ps(three_halves, _mm_mul_ps(half, _mm_mul_ps(v, _mm_mul_ps(estimate, estimate)))));
+    return estimate;
+}
+#endif
 
 } // namespace
 
@@ -138,6 +156,7 @@ struct PhongShader : IShader {
         return {false, gl_FragColor};                             // do not discard the pixel
     }
 
+#if defined(TINY_SIMD_NEON)
     virtual std::uint32_t fragment4(const float *bar0, const float *bar1, const float *bar2, std::uint32_t active_mask, TGAColor *colors) const override {
         const float32x4_t b0 = vld1q_f32(bar0);
         const float32x4_t b1 = vld1q_f32(bar1);
@@ -258,6 +277,127 @@ struct PhongShader : IShader {
         }
         return keep_mask;
     }
+#elif defined(TINY_SIMD_SSE)
+    virtual std::uint32_t fragment4(const float *bar0, const float *bar1, const float *bar2, std::uint32_t active_mask, TGAColor *colors) const override {
+        const __m128 b0 = _mm_loadu_ps(bar0);
+        const __m128 b1 = _mm_loadu_ps(bar1);
+        const __m128 b2 = _mm_loadu_ps(bar2);
+
+        const __m128 uvx = _mm_add_ps(_mm_add_ps(_mm_mul_ps(_mm_set1_ps(varying_uv_x[0]), b0), _mm_mul_ps(_mm_set1_ps(varying_uv_x[1]), b1)), _mm_mul_ps(_mm_set1_ps(varying_uv_x[2]), b2));
+        const __m128 uvy = _mm_add_ps(_mm_add_ps(_mm_mul_ps(_mm_set1_ps(varying_uv_y[0]), b0), _mm_mul_ps(_mm_set1_ps(varying_uv_y[1]), b1)), _mm_mul_ps(_mm_set1_ps(varying_uv_y[2]), b2));
+
+        const __m128 txf = _mm_mul_ps(uvx, _mm_set1_ps(static_cast<float>(diffuse_width)));
+        const __m128 tyf = _mm_mul_ps(uvy, _mm_set1_ps(static_cast<float>(diffuse_height)));
+        const __m128 nxf = _mm_mul_ps(uvx, _mm_set1_ps(static_cast<float>(normal_width)));
+        const __m128 nyf = _mm_mul_ps(uvy, _mm_set1_ps(static_cast<float>(normal_height)));
+        const __m128 sxf = _mm_mul_ps(uvx, _mm_set1_ps(static_cast<float>(specular_width)));
+        const __m128 syf = _mm_mul_ps(uvy, _mm_set1_ps(static_cast<float>(specular_height)));
+
+        const __m128 geom_x = _mm_add_ps(_mm_add_ps(_mm_mul_ps(_mm_set1_ps(varying_nrm_x[0]), b0), _mm_mul_ps(_mm_set1_ps(varying_nrm_x[1]), b1)), _mm_mul_ps(_mm_set1_ps(varying_nrm_x[2]), b2));
+        const __m128 geom_y = _mm_add_ps(_mm_add_ps(_mm_mul_ps(_mm_set1_ps(varying_nrm_y[0]), b0), _mm_mul_ps(_mm_set1_ps(varying_nrm_y[1]), b1)), _mm_mul_ps(_mm_set1_ps(varying_nrm_y[2]), b2));
+        const __m128 geom_z = _mm_add_ps(_mm_add_ps(_mm_mul_ps(_mm_set1_ps(varying_nrm_z[0]), b0), _mm_mul_ps(_mm_set1_ps(varying_nrm_z[1]), b1)), _mm_mul_ps(_mm_set1_ps(varying_nrm_z[2]), b2));
+
+        const __m128 geom_len2 = _mm_add_ps(_mm_add_ps(_mm_mul_ps(geom_x, geom_x), _mm_mul_ps(geom_y, geom_y)), _mm_mul_ps(geom_z, geom_z));
+        const __m128 geom_inv_len = rsqrt_nr(geom_len2);
+        const __m128 geom_nx = _mm_mul_ps(geom_x, geom_inv_len);
+        const __m128 geom_ny = _mm_mul_ps(geom_y, geom_inv_len);
+        const __m128 geom_nz = _mm_mul_ps(geom_z, geom_inv_len);
+
+        alignas(16) int tx_vals[4];
+        alignas(16) int ty_vals[4];
+        alignas(16) int nx_vals[4];
+        alignas(16) int ny_vals[4];
+        alignas(16) int sx_vals[4];
+        alignas(16) int sy_vals[4];
+        _mm_store_si128(reinterpret_cast<__m128i*>(tx_vals), _mm_cvttps_epi32(txf));
+        _mm_store_si128(reinterpret_cast<__m128i*>(ty_vals), _mm_cvttps_epi32(tyf));
+        _mm_store_si128(reinterpret_cast<__m128i*>(nx_vals), _mm_cvttps_epi32(nxf));
+        _mm_store_si128(reinterpret_cast<__m128i*>(ny_vals), _mm_cvttps_epi32(nyf));
+        _mm_store_si128(reinterpret_cast<__m128i*>(sx_vals), _mm_cvttps_epi32(sxf));
+        _mm_store_si128(reinterpret_cast<__m128i*>(sy_vals), _mm_cvttps_epi32(syf));
+
+        alignas(16) float mapped_x_vals[4] = {};
+        alignas(16) float mapped_y_vals[4] = {};
+        alignas(16) float mapped_z_vals[4] = {};
+        alignas(16) float spec_strength_vals[4] = {};
+        alignas(16) std::uint8_t diffuse_b_vals[4] = {};
+        alignas(16) std::uint8_t diffuse_g_vals[4] = {};
+        alignas(16) std::uint8_t diffuse_r_vals[4] = {};
+
+        for (int lane = 0; lane < 4; lane++) {
+            if (((active_mask >> lane) & 1u) == 0) continue;
+            tx_vals[lane] = std::clamp(tx_vals[lane], 0, diffuse_width - 1);
+            ty_vals[lane] = std::clamp(ty_vals[lane], 0, diffuse_height - 1);
+            nx_vals[lane] = std::clamp(nx_vals[lane], 0, normal_width - 1);
+            ny_vals[lane] = std::clamp(ny_vals[lane], 0, normal_height - 1);
+            sx_vals[lane] = std::clamp(sx_vals[lane], 0, specular_width - 1);
+            sy_vals[lane] = std::clamp(sy_vals[lane], 0, specular_height - 1);
+
+            const int n_offset = (nx_vals[lane] + ny_vals[lane] * normal_width) * normal_bpp;
+            mapped_x_vals[lane] = normal_data[n_offset + 2] * (2.f / 255.f) - 1.f;
+            mapped_y_vals[lane] = normal_data[n_offset + 1] * (2.f / 255.f) - 1.f;
+            mapped_z_vals[lane] = normal_data[n_offset + 0] * (2.f / 255.f) - 1.f;
+
+            const int d_offset = (tx_vals[lane] + ty_vals[lane] * diffuse_width) * diffuse_bpp;
+            diffuse_b_vals[lane] = diffuse_data[d_offset + 0];
+            diffuse_g_vals[lane] = diffuse_data[d_offset + 1];
+            diffuse_r_vals[lane] = diffuse_data[d_offset + 2];
+
+            const int s_offset = (sx_vals[lane] + sy_vals[lane] * specular_width) * specular_bpp;
+            spec_strength_vals[lane] = .5f + 2.f * specular_data[s_offset] * (1.f / 255.f);
+        }
+
+        __m128 mapped_x = _mm_load_ps(mapped_x_vals);
+        __m128 mapped_y = _mm_load_ps(mapped_y_vals);
+        __m128 mapped_z = _mm_load_ps(mapped_z_vals);
+
+        const __m128 mapped_len2 = _mm_add_ps(_mm_add_ps(_mm_mul_ps(mapped_x, mapped_x), _mm_mul_ps(mapped_y, mapped_y)), _mm_mul_ps(mapped_z, mapped_z));
+        const __m128 mapped_inv_len = rsqrt_nr(mapped_len2);
+        mapped_x = _mm_mul_ps(mapped_x, mapped_inv_len);
+        mapped_y = _mm_mul_ps(mapped_y, mapped_inv_len);
+        mapped_z = _mm_mul_ps(mapped_z, mapped_inv_len);
+
+        const __m128 n_x = _mm_add_ps(_mm_add_ps(_mm_mul_ps(_mm_set1_ps(tangent_x), mapped_x), _mm_mul_ps(_mm_set1_ps(bitangent_x), mapped_y)), _mm_mul_ps(geom_nx, mapped_z));
+        const __m128 n_y = _mm_add_ps(_mm_add_ps(_mm_mul_ps(_mm_set1_ps(tangent_y), mapped_x), _mm_mul_ps(_mm_set1_ps(bitangent_y), mapped_y)), _mm_mul_ps(geom_ny, mapped_z));
+        const __m128 n_z = _mm_add_ps(_mm_add_ps(_mm_mul_ps(_mm_set1_ps(tangent_z), mapped_x), _mm_mul_ps(_mm_set1_ps(bitangent_z), mapped_y)), _mm_mul_ps(geom_nz, mapped_z));
+
+        const __m128 n_len2 = _mm_add_ps(_mm_add_ps(_mm_mul_ps(n_x, n_x), _mm_mul_ps(n_y, n_y)), _mm_mul_ps(n_z, n_z));
+        const __m128 n_inv_len = rsqrt_nr(n_len2);
+        const __m128 nn_x = _mm_mul_ps(n_x, n_inv_len);
+        const __m128 nn_y = _mm_mul_ps(n_y, n_inv_len);
+        const __m128 nn_z = _mm_mul_ps(n_z, n_inv_len);
+
+        const __m128 nl = _mm_add_ps(_mm_add_ps(_mm_mul_ps(nn_x, _mm_set1_ps(light_x)), _mm_mul_ps(nn_y, _mm_set1_ps(light_y))), _mm_mul_ps(nn_z, _mm_set1_ps(light_z)));
+        const __m128 zero = _mm_setzero_ps();
+        const __m128 diffuse = _mm_max_ps(zero, nl);
+
+        const __m128 rz = _mm_sub_ps(_mm_mul_ps(_mm_mul_ps(_mm_set1_ps(2.f), nl), nn_z), _mm_set1_ps(light_z));
+        const __m128 positive_rz = _mm_max_ps(zero, rz);
+        const __m128 rz2 = _mm_mul_ps(positive_rz, positive_rz);
+        const __m128 rz4 = _mm_mul_ps(rz2, rz2);
+        const __m128 rz8 = _mm_mul_ps(rz4, rz4);
+        const __m128 rz16 = _mm_mul_ps(rz8, rz8);
+        const __m128 rz32 = _mm_mul_ps(rz16, rz16);
+        const __m128 rz35 = _mm_mul_ps(_mm_mul_ps(rz32, rz2), positive_rz);
+        const __m128 specular = _mm_mul_ps(_mm_load_ps(spec_strength_vals), rz35);
+
+        const __m128 scale = _mm_add_ps(_mm_set1_ps(.4f), _mm_add_ps(diffuse, specular));
+        alignas(16) float scale_vals[4];
+        _mm_store_ps(scale_vals, scale);
+
+        std::uint32_t keep_mask = 0;
+        for (int lane = 0; lane < 4; lane++) {
+            if (((active_mask >> lane) & 1u) == 0) continue;
+            TGAColor color = { diffuse_b_vals[lane], diffuse_g_vals[lane], diffuse_r_vals[lane], 255, static_cast<std::uint8_t>(diffuse_bpp) };
+            color[0] = std::min(255, static_cast<int>(color[0] * scale_vals[lane]));
+            color[1] = std::min(255, static_cast<int>(color[1] * scale_vals[lane]));
+            color[2] = std::min(255, static_cast<int>(color[2] * scale_vals[lane]));
+            colors[lane] = color;
+            keep_mask |= 1u << lane;
+        }
+        return keep_mask;
+    }
+#endif
 };
 
 int main(int argc, char** argv) {

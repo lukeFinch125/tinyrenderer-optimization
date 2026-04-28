@@ -34,7 +34,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE $<$<BOOL:${OpenMP_CXX_FOUND}>:Open
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU|Intel")
   target_compile_options(${PROJECT_NAME} PRIVATE -O3 -ffast-math -fno-math-errno)
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i.86")
-    target_compile_options(${PROJECT_NAME} PRIVATE -march=native -mtune=native -mavx2 -mfma)
+    target_compile_options(${PROJECT_NAME} PRIVATE -march=native -mtune=native)
   endif()
 endif()
 
