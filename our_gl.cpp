@@ -119,7 +119,6 @@ void rasterize(const Triangle &clip, const IShader &shader, TGAImage &framebuffe
     const __m128 lane_offsets_ps = _mm_setr_ps(0.f, 1.f, 2.f, 3.f);
     #endif
 
-    #pragma omp parallel for if ((maxy - miny) >= 32) schedule(static)
     for (int y=miny; y<=maxy; y++) {
         float w0 = row_w0 + (y-miny) * w0_step_y;
         float w1 = row_w1 + (y-miny) * w1_step_y;
